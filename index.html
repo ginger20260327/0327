@@ -3,94 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>AI Pose Guide - 自媒體構圖助手 POC</title>
-    <!-- 引入 MediaPipe 相關套件 -->
+    <title>AI Pose Guide - 自媒體構圖助手</title>
+    <!-- 引入 MediaPipe 與 Tailwind CSS -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        :root {
-            --app-height: 100%;
-        }
         body { 
             margin: 0; 
             overflow: hidden; 
             background-color: #000; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, system-ui, sans-serif;
             -webkit-tap-highlight-color: transparent;
-            height: 100vh;
-            /* 針對移動端瀏覽器高度優化 */
             height: 100dvh; 
         }
         .canvas-container { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
         
-        video { 
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            opacity: 0;
-            pointer-events: none;
-        }
+        /* 隱藏原生影片標籤，僅用於數據獲取 */
+        video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        
+        /* 主畫布，用於渲染 AI 效果 */
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
         
         /* 鏡像翻轉 */
         .mirror { transform: scaleX(-1); }
         
+        /* UI 疊加層 */
         .ui-overlay { 
             position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
+            top: 0; left: 0; width: 100%; height: 100%; 
             pointer-events: none; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between; 
+            display: flex; flex-direction: column; justify-content: space-between; 
             padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom) 20px; 
             z-index: 10; 
         }
         
+        /* 引導模板樣式 */
         .guide-template { 
             position: absolute; 
-            top: 50%; 
-            left: 50%; 
-            transform: translate(-50%, -50%); 
-            width: 80%; 
-            height: 75%; 
+            top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            width: 45%; height: 85%; 
             border: 2px dashed rgba(255, 255, 255, 0.4); 
-            border-radius: 30px; 
+            border-radius: 120px; 
             transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
             z-index: 5; 
         }
         .perfect-match { border: 4px solid #4ade80; box-shadow: 0 0 30px rgba(74, 222, 128, 0.5); background-color: rgba(74, 222, 128, 0.05); }
         
-        /* UI 按鈕樣式 */
+        /* 按鈕樣式 */
         .glass-btn {
             background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 10px 18px;
-            border-radius: 999px;
-            font-size: 14px;
-            pointer-events: auto;
-            transition: all 0.2s;
+            color: white; padding: 10px 18px; border-radius: 999px;
+            font-size: 14px; pointer-events: auto; transition: all 0.2s;
         }
         .glass-btn:active { transform: scale(0.9); background: rgba(255, 255, 255, 0.3); }
 
         #capture-btn { 
-            width: 72px; 
-            height: 72px; 
-            background: white; 
-            border-radius: 50%; 
-            border: 5px solid rgba(255,255,255,0.3); 
-            box-shadow: 0 0 20px rgba(0,0,0,0.4); 
-            pointer-events: auto;
-            transition: all 0.2s;
+            width: 76px; height: 76px; 
+            background: white; border-radius: 50%; 
+            border: 6px solid rgba(255,255,255,0.3); 
+            box-shadow: 0 0 25px rgba(0,0,0,0.4); 
+            pointer-events: auto; transition: all 0.2s;
         }
-        #capture-btn:active { transform: scale(0.85); background: #eee; }
+        #capture-btn:active { transform: scale(0.85); background: #ddd; }
         
+        /* 閃光燈效果 */
         .flash-effect { animation: flash 0.2s ease-out forwards; }
         @keyframes flash {
             0% { background-color: #fff; opacity: 1; }
@@ -98,16 +77,9 @@
         }
 
         .loading-screen {
-            position: fixed;
-            inset: 0;
-            background: #000;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-            color: white;
-            transition: opacity 0.5s;
+            position: fixed; inset: 0; background: #000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; color: white; transition: opacity 0.5s;
         }
     </style>
 </head>
@@ -115,13 +87,13 @@
 
     <div id="flash-layer" class="fixed inset-0 pointer-events-none z-50"></div>
 
-    <!-- 啟動與載入畫面 -->
+    <!-- 啟動介面 -->
     <div id="setup-box" class="loading-screen">
-        <div class="mb-6 text-4xl">📸</div>
+        <div class="mb-6 text-5xl">📸</div>
         <h2 class="font-bold text-2xl mb-2">AI 構圖助手</h2>
-        <p class="text-gray-400 text-sm mb-8 px-10 text-center">專為自媒體設計的 AI 拍攝嚮導，即時對位提醒。</p>
-        <button id="start-btn" class="bg-white text-black px-12 py-4 rounded-full text-lg font-bold shadow-2xl active:scale-95 transition-transform">
-            開始使用
+        <p class="text-gray-400 text-sm mb-10 px-10 text-center">讓 AI 成為您的專業攝影師，實現完美對位。</p>
+        <button id="start-btn" class="bg-white text-black px-14 py-4 rounded-full text-lg font-bold shadow-2xl active:scale-95 transition-transform">
+            啟動相機
         </button>
         <p id="error-text" class="text-xs text-red-500 mt-6 hidden px-6 text-center"></p>
     </div>
@@ -131,29 +103,22 @@
         <canvas id="output_canvas" class="mirror"></canvas>
         
         <div class="ui-overlay">
-            <!-- 頂部欄 -->
             <div class="flex justify-between items-start pointer-events-none">
                 <div class="bg-black/40 text-white p-3 rounded-2xl backdrop-blur-md border border-white/10">
-                    <h1 class="font-bold text-base">AI 助手</h1>
-                    <p id="status-text" class="text-[10px] text-green-400 font-mono uppercase tracking-widest">系統準備中</p>
+                    <h1 class="font-bold text-base">構圖助手</h1>
+                    <p id="status-text" class="text-[10px] text-green-400 font-mono uppercase tracking-widest">系統啟動中</p>
                 </div>
                 <div class="flex flex-col gap-3">
-                    <button id="switch-camera-btn" class="glass-btn">
-                        鏡頭 🔄
-                    </button>
-                    <button onclick="toggleGuide()" class="glass-btn">
-                        比例 📐
-                    </button>
+                    <button id="switch-camera-btn" class="glass-btn">切換鏡頭 🔄</button>
+                    <button id="template-btn" class="glass-btn">切換模板 📐</button>
                 </div>
             </div>
 
-            <!-- 中間提示 -->
-            <div id="pose-indicator" class="self-center bg-green-500/90 text-white px-6 py-2 rounded-full text-sm font-bold backdrop-blur-md opacity-0 transition-opacity animate-pulse shadow-lg">
-                ✨ 完美構圖！請拍照 ✨
+            <div id="pose-indicator" class="self-center bg-green-500 text-white px-8 py-2 rounded-full text-sm font-bold backdrop-blur-md opacity-0 transition-opacity animate-pulse shadow-xl">
+                ✨ 構圖精準！請拍照 ✨
             </div>
 
-            <!-- 底部欄 -->
-            <div class="flex justify-center items-center pb-8">
+            <div class="flex justify-center items-center pb-10">
                 <button id="capture-btn" aria-label="拍照"></button>
             </div>
         </div>
@@ -172,6 +137,7 @@
         const setupBox = document.getElementById('setup-box');
         const startBtn = document.getElementById('start-btn');
         const switchBtn = document.getElementById('switch-camera-btn');
+        const templateBtn = document.getElementById('template-btn');
         const captureBtn = document.getElementById('capture-btn');
         const flashLayer = document.getElementById('flash-layer');
         const errorText = document.getElementById('error-text');
@@ -180,8 +146,9 @@
         let currentFacingMode = "user"; 
         let localStream = null;
         let isProcessing = false;
+        let currentTemplate = 0; // 0: 標準, 1: 全身, 2: 頭像
 
-        // 初始化 MediaPipe Pose
+        // 初始化 Pose 模型
         const pose = new Pose({
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
         });
@@ -189,14 +156,13 @@
         pose.setOptions({
             modelComplexity: 1,
             smoothLandmarks: true,
-            minDetectionConfidence: 0.6,
-            minTrackingConfidence: 0.6
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
         });
 
         pose.onResults((results) => {
             if (!results.image) return;
 
-            // 調整畫布尺寸以符合視窗
             if (canvasElement.width !== videoElement.videoWidth || canvasElement.height !== videoElement.videoHeight) {
                 canvasElement.width = videoElement.videoWidth;
                 canvasElement.height = videoElement.videoHeight;
@@ -205,7 +171,6 @@
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             
-            // 處理鏡像繪製
             if (currentFacingMode === "user") {
                 canvasCtx.translate(canvasElement.width, 0);
                 canvasCtx.scale(-1, 1);
@@ -214,16 +179,16 @@
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
             if (results.poseLandmarks) {
-                statusText.innerText = "已鎖定主體";
+                statusText.innerText = "已鎖定人像";
                 statusText.classList.replace('text-gray-400', 'text-green-400');
                 
-                // 繪製骨架
-                drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.6)', lineWidth: 2});
+                // 繪製骨架引導（僅顯示在預覽畫布上）
+                drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: 'rgba(255, 255, 255, 0.4)', lineWidth: 2});
                 drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#4ade80', lineWidth: 1, radius: 2});
 
-                // 簡單構圖判定：鼻子(Landmark 0)在畫面中心區域
+                // 簡單構圖判定
                 const nose = results.poseLandmarks[0];
-                if (nose && nose.y > 0.15 && nose.y < 0.4) {
+                if (nose && nose.y > 0.1 && nose.y < 0.4) {
                     if (!isMatch) {
                         isMatch = true;
                         guideBox.classList.add('perfect-match');
@@ -248,7 +213,7 @@
             try {
                 await pose.send({image: videoElement});
             } catch (e) {
-                console.error("Pose processing error", e);
+                console.error(e);
             }
             requestAnimationFrame(processFrame);
         }
@@ -256,22 +221,25 @@
         async function initCamera(mode) {
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
             }
+            videoElement.srcObject = null;
             
-            // 延時緩衝防止切換失敗
-            await new Promise(r => setTimeout(r, 250));
+            // 關鍵：延遲確保硬體完全釋放，避免黑屏
+            await new Promise(r => setTimeout(r, 600));
 
             const constraints = {
                 video: {
                     facingMode: mode === "user" ? "user" : { ideal: "environment" },
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 }
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
                 }
             };
 
             try {
-                localStream = await navigator.mediaDevices.getUserMedia(constraints);
-                videoElement.srcObject = localStream;
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                localStream = stream;
+                videoElement.srcObject = stream;
                 
                 if (mode === "user") {
                     canvasElement.classList.add('mirror');
@@ -280,8 +248,9 @@
                 }
 
                 await videoElement.play();
+                statusText.innerText = mode === "user" ? "前鏡頭模式" : "後鏡頭模式";
             } catch (err) {
-                console.error("Camera Init Error:", err);
+                console.error("Camera Error:", err);
                 throw err;
             }
         }
@@ -296,7 +265,7 @@
                 isProcessing = true;
                 processFrame();
             } catch (err) {
-                errorText.innerText = "無法存取相機，請確保已開啟瀏覽器權限。";
+                errorText.innerText = "相機開啟失敗，請確認已授權權限並使用 HTTPS。";
                 errorText.classList.remove('hidden');
                 startBtn.disabled = false;
                 startBtn.innerText = "重試";
@@ -304,55 +273,72 @@
         });
 
         switchBtn.addEventListener('click', async () => {
-            if (!isProcessing) return;
+            if (!isProcessing || switchBtn.disabled) return;
             switchBtn.disabled = true;
-            currentFacingMode = (currentFacingMode === "user") ? "environment" : "user";
+            const targetMode = (currentFacingMode === "user") ? "environment" : "user";
+            statusText.innerText = "切換中...";
             try {
-                await initCamera(currentFacingMode);
+                await initCamera(targetMode);
+                currentFacingMode = targetMode;
             } catch (err) {
-                alert("切換鏡頭失敗，請重新整理頁面。");
+                alert("切換失敗，設備可能忙碌中。");
             } finally {
-                switchBtn.disabled = false;
+                setTimeout(() => { switchBtn.disabled = false; }, 1200);
+            }
+        });
+
+        templateBtn.addEventListener('click', () => {
+            currentTemplate = (currentTemplate + 1) % 3;
+            if (currentTemplate === 0) { // 標準
+                guideBox.style.width = '45%';
+                guideBox.style.height = '85%';
+                guideBox.style.borderRadius = '120px';
+                statusText.innerText = "模板：標準構圖";
+            } else if (currentTemplate === 1) { // 全身
+                guideBox.style.width = '70%';
+                guideBox.style.height = '80%';
+                guideBox.style.borderRadius = '30px';
+                statusText.innerText = "模板：全身比例";
+            } else { // 頭像
+                guideBox.style.width = '60%';
+                guideBox.style.height = '45%';
+                guideBox.style.borderRadius = '200px';
+                statusText.innerText = "模板：近攝頭像";
             }
         });
 
         captureBtn.addEventListener('click', () => {
-            // 閃光效果
             flashLayer.classList.remove('flash-effect');
             void flashLayer.offsetWidth; 
             flashLayer.classList.add('flash-effect');
 
-            // 儲存照片
             try {
-                const dataURL = canvasElement.toDataURL('image/jpeg', 0.9);
+                // 重點：建立隱藏畫布，只繪製 video 原始畫面，不繪製任何 AI 骨架或框線
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = videoElement.videoWidth;
+                tempCanvas.height = videoElement.videoHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                tempCtx.save();
+                if (currentFacingMode === "user") {
+                    tempCtx.translate(tempCanvas.width, 0);
+                    tempCtx.scale(-1, 1);
+                }
+                tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
+                tempCtx.restore();
+
+                const dataURL = tempCanvas.toDataURL('image/jpeg', 0.95);
                 const link = document.createElement('a');
                 link.href = dataURL;
                 link.download = `AI_Shot_${Date.now()}.jpg`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+                statusText.innerText = "✅ 照片已儲存至設備";
             } catch (err) {
-                alert("儲存失敗，建議使用 Safari 或 Chrome 瀏覽器。");
+                statusText.innerText = "❌ 儲存失敗";
             }
         });
-
-        window.toggleGuide = function() {
-            const box = document.getElementById('guide-box');
-            // 循環切換幾種構圖比例
-            if (box.style.width === '45%') { // 全身/窄比例
-                box.style.width = '80%';
-                box.style.height = '80%';
-                box.style.borderRadius = '30px';
-            } else if (box.style.width === '80%') { // 網紅大頭
-                box.style.width = '70%';
-                box.style.height = '50%';
-                box.style.borderRadius = '100px';
-            } else { // 預設
-                box.style.width = '45%';
-                box.style.height = '90%';
-                box.style.borderRadius = '120px';
-            }
-        };
     </script>
 </body>
 </html>
