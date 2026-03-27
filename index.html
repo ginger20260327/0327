@@ -46,16 +46,26 @@
         
         .flash { animation: flashEffect 0.2s ease-out; }
         @keyframes flashEffect { 0% { background: white; } 100% { background: transparent; } }
+
+        /* 儲存提示彈窗 */
+        #save-hint {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.8); color: white; padding: 10px 20px;
+            border-radius: 10px; z-index: 200; display: none; text-align: center;
+        }
     </style>
 </head>
 <body>
 
     <div id="flash-layer" class="fixed inset-0 pointer-events-none z-50"></div>
+    <div id="save-hint">📸 拍照成功！<br><span class="text-xs">請在彈出視窗長按圖片儲存至相簿</span></div>
 
     <!-- 啟動按鈕 -->
     <div id="setup-box" class="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center text-white">
         <h2 class="text-2xl font-bold mb-6">AI 構圖相機</h2>
-        <button id="start-btn" class="bg-white text-black px-10 py-4 rounded-full font-bold">開啟相機</button>
+        <button id="start-btn" class="bg-white text-black px-10 py-4 rounded-full font-bold shadow-lg active:scale-95 transition-transform">
+            開啟相機
+        </button>
     </div>
 
     <div class="canvas-container">
@@ -64,7 +74,7 @@
         
         <div class="ui-overlay">
             <div class="flex justify-between items-start">
-                <div class="bg-black/50 p-3 rounded-xl text-white backdrop-blur">
+                <div class="bg-black/50 p-3 rounded-xl text-white backdrop-blur border border-white/10">
                     <p id="status-text" class="text-xs font-bold text-green-400">等待初始化</p>
                 </div>
                 <div class="flex flex-col gap-3">
@@ -74,7 +84,7 @@
             </div>
 
             <div id="capture-area" class="flex justify-center pb-12">
-                <button id="capture-btn"></button>
+                <button id="capture-btn" class="active:scale-90 transition-transform shadow-2xl"></button>
             </div>
         </div>
         <div id="guide-box" class="guide-template"></div>
@@ -88,6 +98,7 @@
         const guide = document.getElementById('guide-box');
         const startBtn = document.getElementById('start-btn');
         const captureBtn = document.getElementById('capture-btn');
+        const saveHint = document.getElementById('save-hint');
         
         let facingMode = "user";
         let isReady = false;
@@ -111,7 +122,6 @@
                 drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#fff', lineWidth: 2});
                 drawLandmarks(ctx, results.poseLandmarks, {color: '#4ade80', radius: 3});
                 
-                // 簡易判定：鼻子位置
                 const nose = results.poseLandmarks[0];
                 if (nose.y > 0.1 && nose.y < 0.4) { guide.classList.add('perfect-match'); }
                 else { guide.classList.remove('perfect-match'); }
@@ -123,14 +133,19 @@
         });
 
         async function startCam() {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: facingMode, width: 1280, height: 720 }
-            });
-            video.srcObject = stream;
-            return new Promise(resolve => video.onloadedmetadata = () => resolve());
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                video.srcObject = stream;
+                return new Promise(resolve => video.onloadedmetadata = () => resolve());
+            } catch (err) {
+                alert("無法存取相機，請確保使用 HTTPS 並授權相機權限。");
+            }
         }
 
         startBtn.onclick = async () => {
+            startBtn.innerText = "啟動中...";
             await startCam();
             document.getElementById('setup-box').style.display = 'none';
             isReady = true;
@@ -161,10 +176,11 @@
         };
 
         captureBtn.onclick = () => {
+            // 閃光燈效果
             document.getElementById('flash-layer').classList.add('flash');
             setTimeout(() => document.getElementById('flash-layer').classList.remove('flash'), 200);
 
-            // 存檔邏輯：僅擷取 Video 原始影像，不含畫布上的框線
+            // 建立離屏畫布
             const offscreen = document.createElement('canvas');
             offscreen.width = video.videoWidth;
             offscreen.height = video.videoHeight;
@@ -175,11 +191,28 @@
             oCtx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
             oCtx.restore();
 
-            const url = offscreen.toDataURL('image/jpeg', 0.9);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `AI_PHOTO_${Date.now()}.jpg`;
-            a.click();
+            try {
+                const url = offscreen.toDataURL('image/jpeg', 0.9);
+                
+                // 顯示提示
+                saveHint.style.display = 'block';
+                setTimeout(() => saveHint.style.display = 'none', 3000);
+
+                // 在新視窗開啟圖片（行動端最穩定的方式）
+                const newWindow = window.open();
+                if (newWindow) {
+                    newWindow.document.write(`<img src="${url}" style="width:100%; height:auto;" />`);
+                    newWindow.document.title = "長按圖片儲存";
+                } else {
+                    // 如果被攔截，改用傳統下載 (作為後備)
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `AI_PHOTO_${Date.now()}.jpg`;
+                    a.click();
+                }
+            } catch (e) {
+                alert("儲存失敗，請嘗試使用 Safari 或 Chrome 瀏覽器。");
+            }
         };
     </script>
 </body>
