@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>AI Pose Guide - 自媒體構圖助手</title>
-    <!-- 引入必要的函式庫 -->
+    <!-- 引入 MediaPipe 與 Tailwind CSS -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,7 +15,7 @@
             height: 100dvh; 
         }
         .canvas-container { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
-        video { position: absolute; width: 1px; height: 1px; opacity: 0; }
+        video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
         .mirror { transform: scaleX(-1); }
         
@@ -34,9 +34,9 @@
         .perfect-match { border: 4px solid #4ade80; background-color: rgba(74, 222, 128, 0.1); }
         
         .glass-btn {
-            background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.3); color: white; 
-            padding: 12px 20px; border-radius: 999px; pointer-events: auto;
+            padding: 12px 20px; border-radius: 999px; pointer-events: auto; font-size: 14px;
         }
 
         #capture-btn { 
@@ -47,24 +47,26 @@
         .flash { animation: flashEffect 0.2s ease-out; }
         @keyframes flashEffect { 0% { background: white; } 100% { background: transparent; } }
 
-        /* 儲存提示彈窗 */
         #save-hint {
             position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.8); color: white; padding: 10px 20px;
-            border-radius: 10px; z-index: 200; display: none; text-align: center;
+            background: rgba(0,0,0,0.85); color: white; padding: 12px 24px;
+            border-radius: 12px; z-index: 200; display: none; text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
     </style>
 </head>
 <body>
 
     <div id="flash-layer" class="fixed inset-0 pointer-events-none z-50"></div>
-    <div id="save-hint">📸 拍照成功！<br><span class="text-xs">請在彈出視窗長按圖片儲存至相簿</span></div>
+    <div id="save-hint">📸 拍照成功！<br><span class="text-xs">請在新分頁長按圖片儲存</span></div>
 
-    <!-- 啟動按鈕 -->
-    <div id="setup-box" class="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center text-white">
-        <h2 class="text-2xl font-bold mb-6">AI 構圖相機</h2>
-        <button id="start-btn" class="bg-white text-black px-10 py-4 rounded-full font-bold shadow-lg active:scale-95 transition-transform">
-            開啟相機
+    <!-- 啟動介面 -->
+    <div id="setup-box" class="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center text-white px-6 text-center">
+        <div class="text-6xl mb-6">📸</div>
+        <h2 class="text-2xl font-bold mb-2">AI 構圖相機</h2>
+        <p class="text-gray-400 text-sm mb-8">請點擊下方按鈕啟動，並授權相機權限</p>
+        <button id="start-btn" class="bg-white text-black px-12 py-4 rounded-full font-bold shadow-lg active:scale-95 transition-transform">
+            啟動相機
         </button>
     </div>
 
@@ -75,7 +77,7 @@
         <div class="ui-overlay">
             <div class="flex justify-between items-start">
                 <div class="bg-black/50 p-3 rounded-xl text-white backdrop-blur border border-white/10">
-                    <p id="status-text" class="text-xs font-bold text-green-400">等待初始化</p>
+                    <p id="status-text" class="text-xs font-bold text-green-400">系統待命</p>
                 </div>
                 <div class="flex flex-col gap-3">
                     <button id="switch-btn" class="glass-btn">切換鏡頭 🔄</button>
@@ -84,7 +86,7 @@
             </div>
 
             <div id="capture-area" class="flex justify-center pb-12">
-                <button id="capture-btn" class="active:scale-90 transition-transform shadow-2xl"></button>
+                <button id="capture-btn" class="active:scale-90 transition-transform"></button>
             </div>
         </div>
         <div id="guide-box" class="guide-template"></div>
@@ -100,21 +102,41 @@
         const captureBtn = document.getElementById('capture-btn');
         const saveHint = document.getElementById('save-hint');
         
-        let facingMode = "user";
+        let facingMode = "user"; // 預設自拍
         let isReady = false;
         let templateIdx = 0;
+        let currentStream = null;
 
-        const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
-        pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5 });
+        // 初始化 AI Pose 模型
+        const pose = new Pose({ 
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` 
+        });
+
+        pose.setOptions({ 
+            modelComplexity: 1, 
+            smoothLandmarks: true, 
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
 
         pose.onResults((results) => {
             if (!results.image) return;
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+            
+            // 同步畫布尺寸
+            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+            }
 
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            if (facingMode === "user") { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+            
+            // 處理鏡像
+            if (facingMode === "user") {
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+            }
+            
             ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
             if (results.poseLandmarks) {
@@ -122,96 +144,141 @@
                 drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#fff', lineWidth: 2});
                 drawLandmarks(ctx, results.poseLandmarks, {color: '#4ade80', radius: 3});
                 
+                // 簡易構圖判定
                 const nose = results.poseLandmarks[0];
-                if (nose.y > 0.1 && nose.y < 0.4) { guide.classList.add('perfect-match'); }
-                else { guide.classList.remove('perfect-match'); }
+                if (nose.y > 0.1 && nose.y < 0.45) {
+                    guide.classList.add('perfect-match');
+                } else {
+                    guide.classList.remove('perfect-match');
+                }
             } else {
-                status.innerText = "🔍 搜尋人像中";
+                status.innerText = "🔍 搜尋中...";
                 guide.classList.remove('perfect-match');
             }
             ctx.restore();
         });
 
         async function startCam() {
+            // 停止舊有的串流
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+
+            const constraints = {
+                video: {
+                    facingMode: { ideal: facingMode },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            };
+
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
-                });
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
                 video.srcObject = stream;
-                return new Promise(resolve => video.onloadedmetadata = () => resolve());
+                
+                // 確保影片播放後再返回
+                return new Promise(resolve => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
             } catch (err) {
-                alert("無法存取相機，請確保使用 HTTPS 並授權相機權限。");
+                console.error("相機錯誤:", err);
+                alert("無法啟動相機。請檢查權限設定，並確保正在使用 HTTPS 連線。");
             }
         }
 
+        async function predictLoop() {
+            if (isReady && video.readyState >= 2) {
+                await pose.send({image: video});
+            }
+            requestAnimationFrame(predictLoop);
+        }
+
         startBtn.onclick = async () => {
-            startBtn.innerText = "啟動中...";
+            startBtn.disabled = true;
+            startBtn.innerText = "系統載入中...";
             await startCam();
             document.getElementById('setup-box').style.display = 'none';
             isReady = true;
-            async function predict() {
-                if (isReady) await pose.send({image: video});
-                requestAnimationFrame(predict);
-            }
-            predict();
+            predictLoop();
         };
 
+        // 切換鏡頭按鈕邏輯
         document.getElementById('switch-btn').onclick = async () => {
-            facingMode = facingMode === "user" ? "environment" : "user";
-            if (facingMode === "user") canvas.classList.add('mirror');
-            else canvas.classList.remove('mirror');
+            facingMode = (facingMode === "user") ? "environment" : "user";
+            
+            // 處理 UI 鏡像顯示
+            if (facingMode === "user") {
+                canvas.classList.add('mirror');
+                status.innerText = "切換至前鏡頭";
+            } else {
+                canvas.classList.remove('mirror');
+                status.innerText = "切換至後鏡頭";
+            }
+            
             await startCam();
         };
 
         document.getElementById('temp-btn').onclick = () => {
             templateIdx = (templateIdx + 1) % 3;
             const configs = [
-                {w:'45%', h:'85%', r:'120px'},
-                {w:'70%', h:'75%', r:'20px'},
-                {w:'60%', h:'45%', r:'200px'}
+                {w:'45%', h:'85%', r:'120px', name:'標準構圖'},
+                {w:'70%', h:'75%', r:'20px', name:'全身比例'},
+                {w:'60%', h:'45%', r:'200px', name:'近攝頭像'}
             ];
             guide.style.width = configs[templateIdx].w;
             guide.style.height = configs[templateIdx].h;
             guide.style.borderRadius = configs[templateIdx].r;
+            status.innerText = `模板：${configs[templateIdx].name}`;
         };
 
         captureBtn.onclick = () => {
-            // 閃光燈效果
-            document.getElementById('flash-layer').classList.add('flash');
-            setTimeout(() => document.getElementById('flash-layer').classList.remove('flash'), 200);
+            // 閃光燈
+            const flash = document.getElementById('flash-layer');
+            flash.classList.add('flash');
+            setTimeout(() => flash.classList.remove('flash'), 200);
 
-            // 建立離屏畫布
+            // 存檔 (純影片內容)
             const offscreen = document.createElement('canvas');
             offscreen.width = video.videoWidth;
             offscreen.height = video.videoHeight;
             const oCtx = offscreen.getContext('2d');
             
             oCtx.save();
-            if (facingMode === "user") { oCtx.translate(offscreen.width, 0); oCtx.scale(-1, 1); }
+            if (facingMode === "user") {
+                oCtx.translate(offscreen.width, 0);
+                oCtx.scale(-1, 1);
+            }
             oCtx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
             oCtx.restore();
 
-            try {
-                const url = offscreen.toDataURL('image/jpeg', 0.9);
-                
-                // 顯示提示
-                saveHint.style.display = 'block';
-                setTimeout(() => saveHint.style.display = 'none', 3000);
+            const url = offscreen.toDataURL('image/jpeg', 0.95);
+            saveHint.style.display = 'block';
+            setTimeout(() => saveHint.style.display = 'none', 4000);
 
-                // 在新視窗開啟圖片（行動端最穩定的方式）
-                const newWindow = window.open();
-                if (newWindow) {
-                    newWindow.document.write(`<img src="${url}" style="width:100%; height:auto;" />`);
-                    newWindow.document.title = "長按圖片儲存";
-                } else {
-                    // 如果被攔截，改用傳統下載 (作為後備)
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `AI_PHOTO_${Date.now()}.jpg`;
-                    a.click();
-                }
-            } catch (e) {
-                alert("儲存失敗，請嘗試使用 Safari 或 Chrome 瀏覽器。");
+            // 在新視窗開啟圖片，供長按儲存
+            const imgWin = window.open("");
+            if (imgWin) {
+                imgWin.document.write(`
+                    <html>
+                    <head><title>長按儲存照片</title></head>
+                    <body style="margin:0; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; font-family:sans-serif;">
+                        <img src="${url}" style="max-width:100%; height:auto; border-radius:8px; box-shadow:0 0 50px rgba(255,255,255,0.2);"/>
+                        <p style="margin-top:20px; font-size:18px;">📸 長按上方圖片即可儲存至相簿</p>
+                        <button onclick="window.close()" style="margin-top:20px; background:#333; color:white; border:none; padding:10px 20px; border-radius:20px;">返回相機</button>
+                    </body>
+                    </html>
+                `);
+            } else {
+                // 如果彈窗被攔截，改用下載
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `AI_PHOTO_${Date.now()}.jpg`;
+                a.click();
             }
         };
     </script>
